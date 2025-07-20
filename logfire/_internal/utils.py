@@ -160,19 +160,37 @@ class ReadableSpanDict(TypedDict):
 
 def span_to_dict(span: ReadableSpan) -> ReadableSpanDict:
     """See ReadableSpanDict."""
+    # Cache attributes in locals for faster repeated access
+    name = span.name
+    context = span.context
+    parent = span.parent
+    resource = span.resource
+    attributes = span.attributes
+    events = span.events
+    links = span.links
+    kind = span.kind
+    status = span.status
+    start_time = span.start_time
+    end_time = span.end_time
+    instrumentation_scope = span.instrumentation_scope
+
+    # Evaluate attributes only once, as this was a hot path
+    if not attributes:
+        attributes = {}
+
     return ReadableSpanDict(
-        name=span.name,
-        context=span.context,
-        parent=span.parent,
-        resource=span.resource,
-        attributes=span.attributes or {},
-        events=span.events,
-        links=span.links,
-        kind=span.kind,
-        status=span.status,
-        start_time=span.start_time,
-        end_time=span.end_time,
-        instrumentation_scope=span.instrumentation_scope,
+        name=name,
+        context=context,
+        parent=parent,
+        resource=resource,
+        attributes=attributes,
+        events=events,
+        links=links,
+        kind=kind,
+        status=status,
+        start_time=start_time,
+        end_time=end_time,
+        instrumentation_scope=instrumentation_scope,
     )
 
 
