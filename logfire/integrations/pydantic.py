@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
 
 import pydantic
+from pydantic.plugin._schema_validator import PluggableSchemaValidator
 from typing_extensions import ParamSpec
 
 import logfire
@@ -421,16 +422,8 @@ def _patch_PluggableSchemaValidator():
     Getting an attribute before proper initializing (e.g. when using cloudpickle)
     leads to infinite recursion trying to get _schema_validator.
     """
-    from pydantic.plugin._schema_validator import PluggableSchemaValidator
-
-    if (  # pragma: no branch
-        inspect.getsource(PluggableSchemaValidator.__getattr__).strip()
-        # Check that we're replacing the code that's known to be buggy.
-        == """
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._schema_validator, name)
-    """.strip()
-    ):
+    # Only patch if the code is known to be buggy.
+    if _ORIG_GETATTR_SOURCE == _BUGGY_GETATTR_SOURCE:
 
         def __getattr__(self: Any, name: str) -> Any:
             # Add these two lines to the above.
@@ -438,7 +431,6 @@ def _patch_PluggableSchemaValidator():
             # is an AttributeError rather than infinite recursion.
             if name == '_schema_validator':
                 raise AttributeError(name)
-
             return getattr(self._schema_validator, name)
 
         PluggableSchemaValidator.__getattr__ = __getattr__
@@ -506,3 +498,11 @@ def _get_handler_method(handler: Any, method_name: str) -> Callable[..., None]:
         return _noop
     else:
         return handler
+
+
+_ORIG_GETATTR_SOURCE = inspect.getsource(PluggableSchemaValidator.__getattr__).strip()
+
+_BUGGY_GETATTR_SOURCE = """
+def __getattr__(self, name: str) -> Any:
+    return getattr(self._schema_validator, name)
+""".strip()
