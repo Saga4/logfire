@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
 
 import pydantic
+from pydantic.plugin import SchemaTypePath
 from typing_extensions import ParamSpec
 
 import logfire
@@ -366,10 +367,15 @@ _pydantic_plugin_config_value: PydanticPlugin | None = None
 
 def get_pydantic_plugin_config() -> PydanticPlugin:
     """Get the Pydantic plugin config."""
-    if _pydantic_plugin_config_value is not None:
-        return _pydantic_plugin_config_value
-    else:
-        return GLOBAL_CONFIG.param_manager.pydantic_plugin
+    # Fast-path for cached config object
+    cached = _config_cache['config']
+    if cached is not None:
+        return cached
+    # Not cached: fetch and update cache
+    config = GLOBAL_CONFIG.param_manager.pydantic_plugin
+    _config_cache['config'] = config
+    # Will be used by _include_model on next call
+    return config
 
 
 def set_pydantic_plugin_config(plugin_config: PydanticPlugin | None) -> None:
@@ -384,18 +390,33 @@ def _include_model(schema_type_path: SchemaTypePath) -> bool:
     include = config.include
     exclude = config.exclude
 
-    # check if the model is in ignored model
     module = schema_type_path.module
+    # Cheap module ignore check
     if module.startswith(IGNORED_MODULE_PREFIXES) or module in IGNORED_MODULES:  # pragma: no cover
         return False
 
-    # check if the model is in exclude models
-    if exclude and any(re.search(f'{pattern}$', f'{module}::{schema_type_path.name}') for pattern in exclude):
+    fqname = f'{module}::{schema_type_path.name}'
+
+    # Precompile regex only if include or exclude changed: avoid repetitive compilation
+    cache = _config_cache
+
+    if exclude:
+        if exclude != cache['last_exclude']:
+            cache['exclude_re'] = _precompile_patterns(exclude)
+            cache['last_exclude'] = exclude
+        for ex_re in cache['exclude_re']:
+            if ex_re.search(fqname):
+                return False
+
+    if include:
+        if include != cache['last_include']:
+            cache['include_re'] = _precompile_patterns(include)
+            cache['last_include'] = include
+        for inc_re in cache['include_re']:
+            if inc_re.search(fqname):
+                return True
         return False
 
-    # check if the model is in include models
-    if include:
-        return any(re.search(f'{pattern}$', f'{module}::{schema_type_path.name}') for pattern in include)
     return True
 
 
@@ -506,3 +527,11 @@ def _get_handler_method(handler: Any, method_name: str) -> Callable[..., None]:
         return _noop
     else:
         return handler
+
+
+def _precompile_patterns(patterns):
+    """Precompile regex patterns for more efficient matching."""
+    return [re.compile(f'{pattern}$') for pattern in patterns]
+
+
+_config_cache = {'config': None, 'include_re': None, 'exclude_re': None, 'last_include': None, 'last_exclude': None}
