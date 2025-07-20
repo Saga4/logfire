@@ -347,6 +347,24 @@ def _sqlalchemy_schema(obj: Any, seen: set[int]) -> JsonDict | None:
 
     from sqlalchemy import exc, inspect as sa_inspect
 
+    """The JSON Schema generator for Logfire.
+
+There are custom keywords in the generated JSON Schema. They are prefixed with `x-` to avoid
+conflicts with the official keywords. The custom keywords are:
+
+- `x-python-datatype`: The Python data type of the value. It is used to generate the Python type hints.
+- `x-columns`: The column names of the data frame. It is used to generate the Python type.
+- `x-indices`: The index names of the data frame. It is used to generate the Python type.
+- `x-column-count`: The number of columns in the data frame. It is used to generate the Python type.
+- `x-row-count`: The number of rows in the data frame. It is used to generate the Python type.
+- `x-shape`: The shape of the numpy array. It is used to generate the Python type.
+- `x-dtype`: The data type of the numpy array. It is used to generate the Python type.
+"""
+
+    # Schemas for values that are already JSON serializable, i.e. that don't need to be included
+    # (except at the top level) because the frontend can just render them as plain JSON.
+    PLAIN_SCHEMAS: tuple[JsonDict, ...] = ({}, {'type': 'object'}, {'type': 'array'}, {'type': 'null'})
+
     try:
         state = sa_inspect(obj)
     except exc.NoInspectionAvailable:

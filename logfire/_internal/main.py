@@ -61,7 +61,7 @@ from .json_schema import (
 from .metrics import ProxyMeterProvider
 from .stack_info import get_user_stack_info
 from .tracer import ProxyTracerProvider, _LogfireWrappedSpan, record_exception, set_exception_status  # type: ignore
-from .utils import get_version, handle_internal_errors, log_internal_error, uniquify_sequence
+from .utils import dump_json, get_version, handle_internal_errors, log_internal_error, uniquify_sequence
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -129,11 +129,13 @@ class Logfire:
         console_log: bool = True,
         otel_scope: str = 'logfire',
     ) -> None:
-        self._tags = tuple(tags)
+        # Use tuple if not already a tuple
+        self._tags = tags if isinstance(tags, tuple) else tuple(tags)
         self._config = config
         self._sample_rate = sample_rate
         self._console_log = console_log
         self._otel_scope = otel_scope
+        # Lazy meter initialization could be considered, but it's assumed external code sets it (as in the original).
 
     @property
     def config(self) -> LogfireConfig:
@@ -2254,11 +2256,15 @@ class LogfireSpan(ReadableSpan):
         self._otlp_attributes = otlp_attributes
         self._tracer = tracer
         self._json_schema_properties = json_schema_properties
-        self._links = list(trace_api.Link(context=context, attributes=attributes) for context, attributes in links)
+        # Use a list comprehension directly, avoids generator overhead.
+        self._links = [trace_api.Link(context=context, attributes=attributes) for context, attributes in links]
 
         self._added_attributes = False
         self._token: None | Token[Context] = None
         self._span: None | trace_api.Span = None
+
+        # Precompute the dumped JSON schema to avoid recomputation in _end
+        self._json_schema_str = dump_json({'type': 'object', 'properties': json_schema_properties})
 
     if not TYPE_CHECKING:  # pragma: no branch
 
@@ -2292,7 +2298,8 @@ class LogfireSpan(ReadableSpan):
         if not self._span or not self._span.is_recording():
             return
         if self._added_attributes:
-            self._span.set_attribute(ATTRIBUTES_JSON_SCHEMA_KEY, attributes_json_schema(self._json_schema_properties))
+            # Use precomputed string
+            self._span.set_attribute(ATTRIBUTES_JSON_SCHEMA_KEY, self._json_schema_str)
         self._span.end()
 
     def _detach(self):
