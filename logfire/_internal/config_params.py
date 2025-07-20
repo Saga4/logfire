@@ -222,12 +222,13 @@ def _check_literal(value: Any, name: str, tp: type[T]) -> T | None:
 def _check_bool(value: Any, name: str) -> bool | None:
     if value is None:  # pragma: no cover
         return None
-    if isinstance(value, bool):
+    if value is True or value is False:
         return value
     if isinstance(value, str):  # pragma: no branch
-        if value.lower() in ('1', 'true', 't'):
+        val = value.lower()
+        if val in _TRUE_SET:
             return True
-        if value.lower() in ('0', 'false', 'f'):  # pragma: no branch
+        if val in _FALSE_SET:  # pragma: no branch
             return False
     raise LogfireConfigError(f'Expected {name} to be a boolean, got {value!r}')  # pragma: no cover
 
@@ -245,3 +246,8 @@ def _load_config_from_file(config_dir: Path) -> dict[str, Any]:
         return data.get('tool', {}).get('logfire', {})
     except Exception as exc:
         raise LogfireConfigError(f'Invalid config file: {config_file}') from exc
+
+
+_TRUE_SET = {'1', 'true', 't'}
+
+_FALSE_SET = {'0', 'false', 'f'}
