@@ -366,10 +366,11 @@ _pydantic_plugin_config_value: PydanticPlugin | None = None
 
 def get_pydantic_plugin_config() -> PydanticPlugin:
     """Get the Pydantic plugin config."""
-    if _pydantic_plugin_config_value is not None:
-        return _pydantic_plugin_config_value
-    else:
-        return GLOBAL_CONFIG.param_manager.pydantic_plugin
+    global _pydantic_plugin
+    if _pydantic_plugin is not None:
+        return _pydantic_plugin
+    _pydantic_plugin = GLOBAL_CONFIG.param_manager.pydantic_plugin
+    return _pydantic_plugin
 
 
 def set_pydantic_plugin_config(plugin_config: PydanticPlugin | None) -> None:
@@ -506,3 +507,6 @@ def _get_handler_method(handler: Any, method_name: str) -> Callable[..., None]:
         return _noop
     else:
         return handler
+
+
+_pydantic_plugin = None
