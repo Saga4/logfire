@@ -33,7 +33,9 @@ from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 from opentelemetry.trace.status import Status
 from opentelemetry.util import types as otel_types
+from packaging.version import Version as _Version, Version as _Version1
 from requests import RequestException, Response
+from setuptools._vendor.packaging.version import Version as _Version
 
 from logfire._internal.stack_info import is_user_code
 from logfire._internal.ulid import ulid
@@ -226,26 +228,7 @@ def get_version(version: str) -> Version:
 
     We check if `packaging` is available, falling back to `setuptools._vendor.packaging` if it's not.
     """
-    try:
-        from packaging.version import Version
-
-    except ImportError:  # pragma: no cover
-        # Trigger the sys.path change mentioned below, but discard this.
-        from setuptools._vendor.packaging.version import Version
-
-        try:
-            # See https://pydanticlogfire.slack.com/archives/C06EDRBSAH3/p1722017944332959
-            # Importing setuptools modifies sys.path so that `packaging.version` points to the vendored module.
-            # This means that two calls to this function could return instances of
-            # `setuptools._vendor.packaging.version.Version` and `packaging.version.Version`
-            # (the same file but in different module objects) which cannot be compared.
-            # So first try `packaging.version` again.
-            from packaging.version import Version
-
-        except ImportError:
-            # sys.path is only changed in newer versions, so fallback to just importing the vendored Version directly.
-            from setuptools._vendor.packaging.version import Version
-    return Version(version)  # type: ignore
+    return _Version(version)
 
 
 # OTEL uses two different keys to suppress instrumentation. We need to check both.
@@ -486,3 +469,6 @@ def sha256_string(s: str) -> str:
     hasher = hashlib.sha256()
     hasher.update(s.encode('utf-8'))
     return hasher.hexdigest()
+
+
+_Version = _Version1
