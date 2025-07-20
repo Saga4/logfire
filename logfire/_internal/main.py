@@ -129,11 +129,13 @@ class Logfire:
         console_log: bool = True,
         otel_scope: str = 'logfire',
     ) -> None:
-        self._tags = tuple(tags)
+        # Use tuple if not already a tuple
+        self._tags = tags if isinstance(tags, tuple) else tuple(tags)
         self._config = config
         self._sample_rate = sample_rate
         self._console_log = console_log
         self._otel_scope = otel_scope
+        # Lazy meter initialization could be considered, but it's assumed external code sets it (as in the original).
 
     @property
     def config(self) -> LogfireConfig:
@@ -2254,7 +2256,13 @@ class LogfireSpan(ReadableSpan):
         self._otlp_attributes = otlp_attributes
         self._tracer = tracer
         self._json_schema_properties = json_schema_properties
-        self._links = list(trace_api.Link(context=context, attributes=attributes) for context, attributes in links)
+        # PREALLOCATE _links with list comprehension (faster than generator expression)
+        links_list = []
+        append_link = links_list.append  # local var for speed
+        Link = trace_api.Link
+        for ctx, attrs in links:
+            append_link(Link(context=ctx, attributes=attrs))
+        self._links = links_list
 
         self._added_attributes = False
         self._token: None | Token[Context] = None
@@ -2400,8 +2408,13 @@ class LogfireSpan(ReadableSpan):
             self._span.set_attributes(attributes)
 
     def _get_attribute(self, key: str, default: Any) -> Any:
-        attributes = getattr(self._span, 'attributes', self._otlp_attributes)
-        return attributes.get(key, default)
+        # Fast attribute access with fallback, avoids method call when possible
+        span = self._span
+        if span is not None and hasattr(span, 'attributes'):
+            # Attempt fast path; __dict__ may be faster in some cases
+            attrs = getattr(span, 'attributes')
+            return attrs.get(key, default)
+        return self._otlp_attributes.get(key, default)
 
     def _set_attribute(self, key: str, value: Any) -> None:
         """Set an attribute on the span or in the _otlp_attributes if span is not yet created."""
