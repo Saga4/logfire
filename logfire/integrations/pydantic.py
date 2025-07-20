@@ -11,6 +11,9 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
 
 import pydantic
+from pydantic import ValidationError
+from pydantic.plugin import SchemaKind, SchemaTypePath
+from pydantic_core import CoreConfig, CoreSchema
 from typing_extensions import ParamSpec
 
 import logfire
@@ -423,6 +426,14 @@ def _patch_PluggableSchemaValidator():
     """
     from pydantic.plugin._schema_validator import PluggableSchemaValidator
 
+    """Integration for instrumenting Pydantic models."""
+
+    # set of modules to ignore completely
+    IGNORED_MODULES: tuple[str, ...] = 'fastapi', 'logfire_backend', 'fastui'
+    IGNORED_MODULE_PREFIXES: tuple[str, ...] = tuple(f'{module}.' for module in IGNORED_MODULES)
+
+    _pydantic_plugin_config_value: PydanticPlugin | None = None
+
     if (  # pragma: no branch
         inspect.getsource(PluggableSchemaValidator.__getattr__).strip()
         # Check that we're replacing the code that's known to be buggy.
@@ -449,15 +460,26 @@ R = TypeVar('R')
 
 
 def _build_wrapper(func: Callable[P, R], event_handlers: list[Any]) -> Callable[P, R]:
-    for handler in event_handlers:
-        # Check for the old event handler methods (on_enter etc.) to continue supporting other plugins.
-        # Note that this patching also changes the order in which the event handlers are called
-        # in the case of multiple plugins, but probably in a good way.
-        old_wrapped = _wrap_with_old_handler(func, handler)
+    # Pre-resolve functions for optimized local access
+    wrap_with_old_handler = _wrap_with_old_handler
+    callable_check = callable
+
+    i = 0
+    n = len(event_handlers)
+    while i < n:
+        handler = event_handlers[i]
+        # Try to wrap with old event handler methods (on_enter etc.)
+        old_wrapped = wrap_with_old_handler(func, handler)
         if old_wrapped:
             func = old_wrapped
-        elif callable(handler):  # no event handler methods found
-            # Use the new API, especially _ValidateWrapper.__call__
+            i += 1
+            continue
+        # No old event handlers for this handler, and likely for next handlers too (common case)
+        break  # The rest will be handled by new API
+
+    # Use the new API for the rest, if any
+    for handler in event_handlers[i:]:
+        if callable_check(handler):
             func = handler(func)  # type: ignore
 
     return func
